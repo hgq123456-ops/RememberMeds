@@ -640,8 +640,8 @@ async function renderToday() {
     });
   });
 
-  var order = { now: 0, missed: 1, upcoming: 2, taken: 3 };
-  cards.sort(function(a, b) { return order[a.state] - order[b.state]; });
+  // Sort by time (earliest first)
+  cards.sort(function(a, b) { return a.timeSlot.localeCompare(b.timeSlot); });
 
   if (cards.length === 0) {
     container.innerHTML = '';
