@@ -449,14 +449,670 @@ body {
 </div>
 
 <script>
-// ===== PLACEHOLDER: Data layer (Task 2) =====
-// ===== PLACEHOLDER: Rendering (Task 3) =====
-// ===== PLACEHOLDER: Interactions (Task 4) =====
-// ===== PLACEHOLDER: Voice (Task 5) =====
-// ===== PLACEHOLDER: Timer (Task 6) =====
-// ===== PLACEHOLDER: Family view (Task 7) =====
-// ===== PLACEHOLDER: History (Task 8) =====
-// ===== PLACEHOLDER: PWA init (Task 11) =====
+// ===================================================================
+// DATA LAYER — localStorage + IndexedDB
+// ===================================================================
+const STORAGE_KEY_MEDS = 'rm_medications';
+const STORAGE_KEY_RECORDS = 'rm_records';
+const DB_NAME = 'RememberMedsDB';
+const DB_VERSION = 1;
+const PHOTO_STORE = 'photos';
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains(PHOTO_STORE)) {
+        req.result.createObjectStore(PHOTO_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function savePhoto(id, base64) {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(PHOTO_STORE, 'readwrite');
+      tx.objectStore(PHOTO_STORE).put(base64, id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (e) { console.warn('IndexedDB save failed:', e); }
+}
+
+async function getPhoto(id) {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(PHOTO_STORE, 'readonly');
+      const req = tx.objectStore(PHOTO_STORE).get(id);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (e) { console.warn('IndexedDB get failed:', e); return null; }
+}
+
+async function deletePhoto(id) {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(PHOTO_STORE, 'readwrite');
+      tx.objectStore(PHOTO_STORE).delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (e) { console.warn('IndexedDB delete failed:', e); }
+}
+
+function loadMeds() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY_MEDS) || '[]'); }
+  catch { return []; }
+}
+function saveMeds(meds) {
+  localStorage.setItem(STORAGE_KEY_MEDS, JSON.stringify(meds));
+}
+function loadRecords() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY_RECORDS) || '[]'); }
+  catch { return []; }
+}
+function saveRecords(records) {
+  localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(records));
+}
+
+function generateId() {
+  return Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
+}
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function nowTimeStr() {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+function isDateInRange(dateStr, startStr, endStr) {
+  if (!startStr) return true;
+  if (dateStr < startStr) return false;
+  if (endStr && dateStr > endStr) return false;
+  return true;
+}
+
+// ===================================================================
+// DRUG CARD STATE MACHINE
+// ===================================================================
+const STATE = { TAKEN: 'taken', NOW: 'now', UPCOMING: 'upcoming', MISSED: 'missed' };
+
+function getCardState(med, timeSlot) {
+  const today = todayStr();
+  const records = loadRecords();
+  const now = nowTimeStr();
+
+  const takenRecord = records.find(r =>
+    r.medId === med.id && r.date === today && r.time === timeSlot && r.status === 'taken'
+  );
+  if (takenRecord) return STATE.TAKEN;
+
+  if (!isDateInRange(today, med.dateStart, med.dateEnd)) return null;
+
+  const [h, m] = timeSlot.split(':').map(Number);
+  const [nh, nm] = now.split(':').map(Number);
+  const slotMins = h * 60 + m;
+  const nowMins = nh * 60 + nm;
+
+  if (nowMins >= slotMins && nowMins - slotMins < 30) return STATE.NOW;
+  if (nowMins > slotMins) return STATE.MISSED;
+  return STATE.UPCOMING;
+}
+
+function getStateLabel(state, timeSlot) {
+  switch (state) {
+    case STATE.TAKEN: return '✅ ' + timeSlot;
+    case STATE.NOW: return '🔔 现在该吃了';
+    case STATE.MISSED: return '⚠️ 已过期 · ' + timeSlot;
+    case STATE.UPCOMING: return '⏰ ' + timeSlot;
+  }
+}
+
+function getStateButton(state) {
+  switch (state) {
+    case STATE.TAKEN: return { text: '✅ 已服用', disabled: true };
+    case STATE.NOW: return { text: '✅ 我吃过了', disabled: false };
+    case STATE.MISSED: return { text: '⚠️ 我忘记吃了', disabled: false };
+    case STATE.UPCOMING: return { text: '⏰ 还没到时间', disabled: true };
+  }
+}
+
+// ===================================================================
+// RENDERING — Today's Medications
+// ===================================================================
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+async function renderPhoto(med, container) {
+  if (!med.photo) {
+    container.innerHTML = '💊';
+    container.style.background = 'linear-gradient(135deg, #E3F2FD, #90CAF9)';
+    return;
+  }
+  try {
+    const photo = await getPhoto(med.id);
+    if (photo) {
+      container.innerHTML = '<img src="' + photo + '" alt="' + escapeHtml(med.name) + '">';
+      container.style.background = 'none';
+    } else {
+      container.innerHTML = '💊';
+      container.style.background = 'linear-gradient(135deg, #E3F2FD, #90CAF9)';
+    }
+  } catch (e) {
+    container.innerHTML = '💊';
+    container.style.background = 'linear-gradient(135deg, #E3F2FD, #90CAF9)';
+  }
+}
+
+async function renderToday() {
+  const meds = loadMeds();
+  const today = todayStr();
+  const container = document.getElementById('today-list');
+  const allDone = document.getElementById('all-done');
+  const emptyToday = document.getElementById('empty-today');
+
+  const activeMeds = meds.filter(m => isDateInRange(today, m.dateStart, m.dateEnd));
+
+  if (activeMeds.length === 0) {
+    container.innerHTML = '';
+    allDone.style.display = 'none';
+    emptyToday.style.display = 'block';
+    return;
+  }
+
+  var cards = [];
+  activeMeds.forEach(function(med) {
+    med.times.forEach(function(t) {
+      var state = getCardState(med, t);
+      if (state === null) return;
+      cards.push({ med: med, timeSlot: t, state: state });
+    });
+  });
+
+  var order = { now: 0, missed: 1, upcoming: 2, taken: 3 };
+  cards.sort(function(a, b) { return order[a.state] - order[b.state]; });
+
+  if (cards.length === 0) {
+    container.innerHTML = '';
+    allDone.style.display = 'none';
+    emptyToday.style.display = 'block';
+    return;
+  }
+
+  emptyToday.style.display = 'none';
+  var allTaken = cards.every(function(c) { return c.state === STATE.TAKEN; });
+  allDone.style.display = allTaken ? 'block' : 'none';
+
+  var html = '';
+  cards.forEach(function(item) {
+    var med = item.med, timeSlot = item.timeSlot, state = item.state;
+    var label = getStateLabel(state, timeSlot);
+    var btn = getStateButton(state);
+    var photoId = 'photo-' + med.id + '-' + timeSlot.replace(':', '');
+    html += '<div class="drug-card state-' + state + '" data-med-id="' + med.id + '" data-time="' + timeSlot + '">'
+      + '<div class="card-row">'
+      + '<div class="drug-photo" id="' + photoId + '">💊</div>'
+      + '<div class="drug-info">'
+      + '<div class="drug-name">' + escapeHtml(med.name) + '</div>'
+      + '<div class="drug-dose">每次 ' + med.dosage + med.unit + (med.note ? ' · ' + med.note : '') + '</div>'
+      + '<div class="time-tag">' + label + '</div>'
+      + '</div></div>'
+      + '<button class="btn-eat"' + (btn.disabled ? ' disabled' : '') + ' data-med-id="' + med.id + '" data-time="' + timeSlot + '" data-state="' + state + '">' + btn.text + '</button>'
+      + '</div>';
+  });
+
+  container.innerHTML = html;
+
+  cards.forEach(function(item) {
+    var photoEl = document.getElementById('photo-' + item.med.id + '-' + item.timeSlot.replace(':', ''));
+    if (photoEl) renderPhoto(item.med, photoEl);
+  });
+}
+
+// ===================================================================
+// INTERACTIONS — "I took it" button
+// ===================================================================
+document.getElementById('today-list').addEventListener('click', function(e) {
+  var btn = e.target.closest('.btn-eat');
+  if (!btn || btn.disabled) return;
+
+  var medId = btn.dataset.medId;
+  var timeSlot = btn.dataset.time;
+  var meds = loadMeds();
+  var med = meds.find(function(m) { return m.id === medId; });
+  if (!med) return;
+
+  var records = loadRecords();
+  records.push({
+    medId: med.id,
+    medName: med.name,
+    date: todayStr(),
+    time: timeSlot,
+    status: 'taken',
+    recordedAt: new Date().toISOString()
+  });
+  saveRecords(records);
+
+  stopVoiceForMed(medId, timeSlot);
+  renderToday();
+});
+
+// ===================================================================
+// VOICE REMINDER SYSTEM
+// ===================================================================
+var activeVoices = {};
+
+function speakMedication(med, timeSlot) {
+  if (!window.speechSynthesis) return;
+
+  window.speechSynthesis.cancel();
+
+  var msg = med.name + '，该吃了，每次' + med.dosage + med.unit;
+  var utterance = new SpeechSynthesisUtterance(msg);
+  utterance.lang = 'zh-CN';
+  utterance.rate = 0.75;
+  utterance.volume = 1.0;
+  utterance.pitch = 1.0;
+
+  setTimeout(function() {
+    window.speechSynthesis.speak(utterance);
+  }, 200);
+}
+
+function stopVoiceForMed(medId, timeSlot) {
+  var key = medId + '-' + timeSlot;
+  if (activeVoices[key]) {
+    clearInterval(activeVoices[key]);
+    delete activeVoices[key];
+  }
+  if (Object.keys(activeVoices).length === 0) {
+    window.speechSynthesis.cancel();
+  }
+}
+
+function startVoiceLoop(med, timeSlot) {
+  var key = med.id + '-' + timeSlot;
+  if (activeVoices[key]) return;
+
+  speakMedication(med, timeSlot);
+  activeVoices[key] = setInterval(function() {
+    speakMedication(med, timeSlot);
+  }, 120000);
+}
+
+function stopAllVoices() {
+  Object.values(activeVoices).forEach(function(id) { clearInterval(id); });
+  activeVoices = {};
+  window.speechSynthesis.cancel();
+}
+
+function checkAndSpeak() {
+  var meds = loadMeds();
+  var today = todayStr();
+
+  meds.filter(function(m) { return isDateInRange(today, m.dateStart, m.dateEnd); }).forEach(function(med) {
+    med.times.forEach(function(timeSlot) {
+      var state = getCardState(med, timeSlot);
+      var key = med.id + '-' + timeSlot;
+
+      if (state === STATE.NOW && !activeVoices[key]) {
+        startVoiceLoop(med, timeSlot);
+      } else if (state !== STATE.NOW && activeVoices[key]) {
+        stopVoiceForMed(med.id, timeSlot);
+      }
+    });
+  });
+}
+
+// ===================================================================
+// TIMER & AUTO-RECORD
+// ===================================================================
+var lastDateCheck = todayStr();
+var mainInterval = null;
+
+function autoRecordMissed() {
+  var meds = loadMeds();
+  var today = todayStr();
+  var records = loadRecords();
+  var now = nowTimeStr();
+
+  meds.filter(function(m) { return isDateInRange(today, m.dateStart, m.dateEnd); }).forEach(function(med) {
+    med.times.forEach(function(timeSlot) {
+      var existing = records.find(function(r) {
+        return r.medId === med.id && r.date === today && r.time === timeSlot;
+      });
+      if (existing) return;
+
+      var parts = timeSlot.split(':').map(Number);
+      var nowParts = now.split(':').map(Number);
+      var slotMins = parts[0] * 60 + parts[1];
+      var nowMins = nowParts[0] * 60 + nowParts[1];
+
+      if (nowMins - slotMins > 30) {
+        records.push({
+          medId: med.id,
+          medName: med.name,
+          date: today,
+          time: timeSlot,
+          status: 'missed',
+          recordedAt: new Date().toISOString()
+        });
+      }
+    });
+  });
+  saveRecords(records);
+}
+
+function updateDateDisplay() {
+  var td = new Date();
+  var weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+  document.getElementById('today-date').textContent =
+    td.getMonth() + 1 + '月' + td.getDate() + '日 周' + weekdays[td.getDay()];
+}
+
+function startTimer() {
+  if (mainInterval) clearInterval(mainInterval);
+  mainInterval = setInterval(function() {
+    var current = todayStr();
+
+    if (current !== lastDateCheck) {
+      lastDateCheck = current;
+      stopAllVoices();
+      updateDateDisplay();
+    }
+
+    autoRecordMissed();
+    renderToday();
+    checkAndSpeak();
+  }, 30000);
+}
+
+function initApp() {
+  updateDateDisplay();
+  renderToday();
+  startTimer();
+}
+
+// ===================================================================
+// FAMILY MANAGEMENT VIEW
+// ===================================================================
+function showElderlyView() {
+  document.getElementById('elderly-view').classList.add('active');
+  document.getElementById('family-view').classList.remove('active');
+  renderToday();
+}
+
+function showFamilyView() {
+  document.getElementById('elderly-view').classList.remove('active');
+  document.getElementById('family-view').classList.add('active');
+  setupTimeSlots();
+  renderExistingMeds();
+}
+
+document.getElementById('btn-open-family').addEventListener('click', showFamilyView);
+document.getElementById('btn-open-family-bottom').addEventListener('click', showFamilyView);
+document.getElementById('btn-back-elderly').addEventListener('click', showElderlyView);
+
+// Tab switching
+document.querySelectorAll('.mgmt-tab').forEach(function(tab) {
+  tab.addEventListener('click', function() {
+    document.querySelectorAll('.mgmt-tab').forEach(function(t) { t.classList.remove('active'); });
+    tab.classList.add('active');
+    var target = tab.dataset.tab;
+    document.getElementById('add-panel').classList.toggle('active', target === 'add');
+    document.getElementById('history-panel').classList.toggle('active', target === 'history');
+    if (target === 'history') renderHistory();
+  });
+});
+
+// Pill selectors
+document.querySelectorAll('.pill-row').forEach(function(row) {
+  row.addEventListener('click', function(e) {
+    var pill = e.target.closest('.pill');
+    if (!pill) return;
+    row.querySelectorAll('.pill').forEach(function(p) { p.classList.remove('selected'); });
+    pill.classList.add('selected');
+    if (row.id === 'freq-pills') setupTimeSlots();
+  });
+});
+
+function getSelectedValue(rowId) {
+  var row = document.getElementById(rowId);
+  var sel = row.querySelector('.pill.selected');
+  return sel ? sel.dataset.value : '1';
+}
+
+function setupTimeSlots() {
+  var count = parseInt(getSelectedValue('freq-pills'));
+  var container = document.getElementById('time-slots-container');
+  var html = '<label class="form-label">服药时间</label>';
+  for (var i = 0; i < count; i++) {
+    var defaultTime = i === 0 ? '08:00' : i === 1 ? '12:00' : '20:00';
+    html += '<div class="time-slot">'
+      + '<span class="slot-num">' + (i + 1) + '</span>'
+      + '<input type="time" class="input-time-slot" value="' + defaultTime + '">'
+      + '</div>';
+  }
+  container.innerHTML = html;
+}
+
+// Photo capture
+var tempPhotoBase64 = null;
+
+document.getElementById('camera-btn').addEventListener('click', function() {
+  document.getElementById('photo-input').click();
+});
+
+document.getElementById('photo-input').addEventListener('change', function(e) {
+  var file = e.target.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function() {
+    tempPhotoBase64 = reader.result;
+    var btn = document.getElementById('camera-btn');
+    btn.classList.add('has-photo');
+    btn.querySelector('span:last-child').textContent = '✅ 已拍照，点击重新拍';
+  };
+  reader.readAsDataURL(file);
+});
+
+// Save medication
+document.getElementById('btn-save-med').addEventListener('click', async function() {
+  var name = document.getElementById('input-name').value.trim();
+  if (!name) { alert('请输入药品名称'); return; }
+
+  var dosage = document.getElementById('input-dosage').value || '1';
+  var unit = getSelectedValue('unit-pills');
+  var dateStart = document.getElementById('input-date-start').value || todayStr();
+  var dateEnd = document.getElementById('input-date-end').value || null;
+
+  var timeInputs = document.querySelectorAll('.input-time-slot');
+  var times = Array.from(timeInputs).map(function(t) { return t.value; }).filter(Boolean);
+
+  if (times.length === 0) { alert('请设置服药时间'); return; }
+
+  var med = {
+    id: generateId(),
+    name: name,
+    dosage: dosage,
+    unit: unit,
+    times: times,
+    timesPerDay: times.length,
+    dateStart: dateStart,
+    dateEnd: dateEnd,
+    note: '',
+    photo: !!tempPhotoBase64,
+    createdAt: new Date().toISOString()
+  };
+
+  if (tempPhotoBase64) {
+    await savePhoto(med.id, tempPhotoBase64);
+  }
+
+  var meds = loadMeds();
+  meds.push(med);
+  saveMeds(meds);
+
+  // Reset form
+  document.getElementById('input-name').value = '';
+  document.getElementById('input-dosage').value = '1';
+  document.getElementById('input-date-end').value = '';
+  document.getElementById('input-date-start').value = todayStr();
+  document.getElementById('photo-input').value = '';
+  tempPhotoBase64 = null;
+  var camBtn = document.getElementById('camera-btn');
+  camBtn.classList.remove('has-photo');
+  camBtn.querySelector('span:last-child').textContent = '点击拍药盒';
+
+  renderExistingMeds();
+  renderToday();
+});
+
+// Existing meds list
+function renderExistingMeds() {
+  var meds = loadMeds();
+  var container = document.getElementById('existing-meds-list');
+  if (meds.length === 0) {
+    container.innerHTML = '<div style="font-size:15px;color:#bbb;text-align:center;padding:12px;">暂无药品</div>';
+    return;
+  }
+  container.innerHTML = meds.map(function(m) {
+    return '<div class="med-item">'
+      + '<span style="font-size:24px;">💊</span>'
+      + '<div class="info"><b>' + escapeHtml(m.name) + '</b> · ' + m.dosage + m.unit + ' · ' + m.times.join(', ') + '</div>'
+      + '<button class="del-btn" data-del-id="' + m.id + '">🗑️</button>'
+      + '</div>';
+  }).join('');
+
+  container.querySelectorAll('.del-btn').forEach(function(btn) {
+    btn.addEventListener('click', async function() {
+      var id = btn.dataset.delId;
+      if (!confirm('确定删除这个药品吗？')) return;
+      var meds = loadMeds().filter(function(m) { return m.id !== id; });
+      saveMeds(meds);
+      try { await deletePhoto(id); } catch (e) {}
+      renderExistingMeds();
+      renderToday();
+    });
+  });
+}
+
+// ===================================================================
+// HISTORY VIEW
+// ===================================================================
+function renderHistory() {
+  var records = loadRecords();
+  var container = document.getElementById('history-list');
+
+  if (records.length === 0) {
+    container.innerHTML = '<div style="text-align:center;padding:40px;font-size:18px;color:#bbb;">暂无服药记录</div>';
+    return;
+  }
+
+  var grouped = {};
+  records.forEach(function(r) {
+    if (!grouped[r.date]) grouped[r.date] = [];
+    grouped[r.date].push(r);
+  });
+
+  var dates = Object.keys(grouped).sort(function(a, b) { return b.localeCompare(a); });
+  var today = todayStr();
+
+  container.innerHTML = dates.map(function(date) {
+    var dayRecords = grouped[date];
+    var dayLabel = date + (date === today ? '（今天）' : '');
+    var isOpen = date === today;
+
+    return '<div class="day-group' + (isOpen ? ' open' : '') + '">'
+      + '<div class="day-header" onclick="this.parentElement.classList.toggle(\'open\')">'
+      + '<span>📅 ' + dayLabel + '</span>'
+      + '<span class="arrow">▼</span>'
+      + '</div>'
+      + '<div class="day-body">'
+      + dayRecords.map(function(r) {
+        return '<div class="day-record">'
+          + '<span>💊 ' + escapeHtml(r.medName) + ' ' + r.time + '</span>'
+          + '<span class="tag ' + r.status + '">' + (r.status === 'taken' ? '已吃' : '未吃') + '</span>'
+          + '</div>';
+      }).join('')
+      + '</div></div>';
+  }).join('');
+}
+
+// ===================================================================
+// PWA REGISTRATION
+// ===================================================================
+var deferredPrompt = null;
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('./service-worker.js')
+      .then(function(reg) {
+        console.log('SW registered:', reg.scope);
+        if ('periodicSync' in reg) {
+          reg.periodicSync.register('check-meds', {
+            minInterval: 5 * 60 * 1000
+          }).catch(function() { /* not available */ });
+        }
+        navigator.serviceWorker.addEventListener('message', function(event) {
+          if (event.data && event.data.type === 'check-meds') {
+            renderToday();
+            checkAndSpeak();
+          }
+        });
+      })
+      .catch(function(err) { console.log('SW registration failed:', err); });
+  });
+}
+
+window.addEventListener('beforeinstallprompt', function(e) {
+  e.preventDefault();
+  deferredPrompt = e;
+  document.getElementById('install-banner').classList.add('show');
+});
+
+document.getElementById('btn-install').addEventListener('click', async function() {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  var result = await deferredPrompt.userChoice;
+  console.log('Install outcome:', result.outcome);
+  deferredPrompt = null;
+  document.getElementById('install-banner').classList.remove('show');
+});
+
+document.getElementById('btn-close-banner').addEventListener('click', function() {
+  document.getElementById('install-banner').classList.remove('show');
+});
+
+if (window.matchMedia('(display-mode: standalone)').matches) {
+  document.getElementById('install-banner').classList.remove('show');
+}
+
+// ===================================================================
+// INIT
+// ===================================================================
+document.getElementById('input-date-start').value = todayStr();
+initApp();
+
+// Handle page visibility change (wake from background)
+document.addEventListener('visibilitychange', function() {
+  if (!document.hidden) {
+    updateDateDisplay();
+    renderToday();
+    checkAndSpeak();
+  }
+});
 </script>
 
 </body>
