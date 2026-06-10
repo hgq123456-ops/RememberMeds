@@ -1140,6 +1140,18 @@ window.addEventListener('beforeinstallprompt', function(e) {
   document.getElementById('install-banner').classList.add('show');
 });
 
+// iOS Safari: Show manual install guide (no PWA install prompt support)
+var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+if (isIOS && !window.matchMedia('(display-mode: standalone)').matches) {
+  var banner = document.getElementById('install-banner');
+  banner.querySelector('.text').textContent = '📲 点下方 ⬆️ 分享 → 添加到主屏幕';
+  banner.querySelector('.btn-install').textContent = '知道了';
+  banner.querySelector('.btn-install').onclick = function() {
+    banner.classList.remove('show');
+  };
+  banner.classList.add('show');
+}
+
 document.getElementById('btn-install').addEventListener('click', async function() {
   if (!deferredPrompt) return;
   deferredPrompt.prompt();
