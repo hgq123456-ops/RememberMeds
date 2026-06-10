@@ -716,18 +716,62 @@ document.getElementById('today-list').addEventListener('click', function(e) {
 // ===================================================================
 var activeVoices = {};
 var speechReady = false;
+var voicesLoaded = false;
+var hasChineseVoice = false;
 
-// Unlock speech synthesis on first user interaction (browser policy)
+// Pre-load voices
+if (window.speechSynthesis) {
+  speechSynthesis.onvoiceschanged = function() {
+    var voices = speechSynthesis.getVoices();
+    hasChineseVoice = voices.some(function(v) {
+      return v.lang.indexOf('zh') === 0 || v.lang.indexOf('cmn') === 0;
+    });
+    voicesLoaded = true;
+  };
+  // Trigger voice loading
+  speechSynthesis.getVoices();
+}
+
+// Unlock speech synthesis on first user interaction
 document.addEventListener('click', function unlockSpeech() {
   if (speechReady) return;
-  var u = new SpeechSynthesisUtterance('你好');
-  u.lang = 'zh-CN';
-  u.volume = 0;
-  try { speechSynthesis.speak(u); } catch(e) {}
+  if (window.speechSynthesis) {
+    var u = new SpeechSynthesisUtterance('');
+    u.volume = 0;
+    try { speechSynthesis.speak(u); } catch(e) {}
+  }
   speechReady = true;
 }, { once: true });
 
+// Beep fallback using Web Audio API (works on all browsers including Huawei)
+function playBeepAlarm() {
+  try {
+    var ctx = new (window.AudioContext || window.webkitAudioContext)();
+    // Play 3 beeps
+    for (var i = 0; i < 3; i++) {
+      (function(delay) {
+        setTimeout(function() {
+          var osc = ctx.createOscillator();
+          var gain = ctx.createGain();
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.frequency.value = 880;
+          osc.type = 'sine';
+          gain.gain.setValueAtTime(0.5, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+          osc.start(ctx.currentTime);
+          osc.stop(ctx.currentTime + 0.3);
+        }, delay);
+      })(i * 400);
+    }
+  } catch(e) {}
+}
+
 function speakMedication(med, timeSlot) {
+  // Always play beep alarm (reliable fallback)
+  playBeepAlarm();
+
+  // Try speech synthesis if available
   if (!window.speechSynthesis) return;
 
   window.speechSynthesis.cancel();
@@ -1115,8 +1159,10 @@ if (window.matchMedia('(display-mode: standalone)').matches) {
 
 // Test voice button
 document.getElementById('btn-test-voice').addEventListener('click', function() {
+  playBeepAlarm(); // Always play beep
+
   if (!window.speechSynthesis) {
-    alert('您的浏览器不支持语音播报');
+    alert('🔊 已播放蜂鸣提示音\n\n您的浏览器不支持语音播报，但蜂鸣闹铃可以正常工作。');
     return;
   }
   var u = new SpeechSynthesisUtterance('您好，这是记得要吃药语音提醒测试');
@@ -1124,7 +1170,9 @@ document.getElementById('btn-test-voice').addEventListener('click', function() {
   u.rate = 0.75;
   u.volume = 1.0;
   speechSynthesis.speak(u);
-  alert('语音播报已触发，请调大手机音量收听。如果没听到声音，请检查：\n1. 手机音量是否开启\n2. 是否使用了支持的浏览器（Chrome/Edge/Safari）');
+  setTimeout(function() {
+    alert('🔊 已播放：蜂鸣声 + 语音播报\n\n如果只听到蜂鸣没听到语音，说明您的浏览器不支持中文语音，但提醒功能仍可正常使用。\n\n请确保手机音量已开启。');
+  }, 1500);
 });
 
 // ===================================================================
