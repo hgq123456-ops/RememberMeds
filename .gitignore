@@ -1,0 +1,6 @@
+.omc/
+.superpowers/
+docs/
+设计图/
+.DS_Store
+node_modules/
