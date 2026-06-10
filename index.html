@@ -367,6 +367,9 @@ body {
       <button class="btn-close" id="btn-close-banner">✕</button>
     </div>
 
+    <div style="text-align:center;margin:8px 0;">
+      <button id="btn-test-voice" style="background:none;border:1px solid #ddd;border-radius:10px;padding:8px 16px;font-size:14px;color:#bbb;cursor:pointer;">🔊 测试语音</button>
+    </div>
     <div class="family-hint" id="btn-open-family-bottom">
       ⚙️ 家人设置 · 添加药品 · 查看记录
     </div>
@@ -712,6 +715,17 @@ document.getElementById('today-list').addEventListener('click', function(e) {
 // VOICE REMINDER SYSTEM
 // ===================================================================
 var activeVoices = {};
+var speechReady = false;
+
+// Unlock speech synthesis on first user interaction (browser policy)
+document.addEventListener('click', function unlockSpeech() {
+  if (speechReady) return;
+  var u = new SpeechSynthesisUtterance('你好');
+  u.lang = 'zh-CN';
+  u.volume = 0;
+  try { speechSynthesis.speak(u); } catch(e) {}
+  speechReady = true;
+}, { once: true });
 
 function speakMedication(med, timeSlot) {
   if (!window.speechSynthesis) return;
@@ -835,7 +849,7 @@ function startTimer() {
     autoRecordMissed();
     renderToday();
     checkAndSpeak();
-  }, 30000);
+  }, 15000);
 }
 
 function initApp() {
@@ -1098,6 +1112,20 @@ document.getElementById('btn-close-banner').addEventListener('click', function()
 if (window.matchMedia('(display-mode: standalone)').matches) {
   document.getElementById('install-banner').classList.remove('show');
 }
+
+// Test voice button
+document.getElementById('btn-test-voice').addEventListener('click', function() {
+  if (!window.speechSynthesis) {
+    alert('您的浏览器不支持语音播报');
+    return;
+  }
+  var u = new SpeechSynthesisUtterance('您好，这是记得要吃药语音提醒测试');
+  u.lang = 'zh-CN';
+  u.rate = 0.75;
+  u.volume = 1.0;
+  speechSynthesis.speak(u);
+  alert('语音播报已触发，请调大手机音量收听。如果没听到声音，请检查：\n1. 手机音量是否开启\n2. 是否使用了支持的浏览器（Chrome/Edge/Safari）');
+});
 
 // ===================================================================
 // INIT
