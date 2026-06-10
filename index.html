@@ -571,7 +571,7 @@ function getStateLabel(state, timeSlot) {
   switch (state) {
     case STATE.TAKEN: return '✅ ' + timeSlot;
     case STATE.NOW: return '🔔 现在该吃了';
-    case STATE.MISSED: return '⚠️ 已过期 · ' + timeSlot;
+    case STATE.MISSED: return '⚠️ 忘记吃了 · ' + timeSlot;
     case STATE.UPCOMING: return '⏰ ' + timeSlot;
   }
 }
@@ -580,7 +580,7 @@ function getStateButton(state) {
   switch (state) {
     case STATE.TAKEN: return { text: '✅ 已服用', disabled: true };
     case STATE.NOW: return { text: '✅ 我吃过了', disabled: false };
-    case STATE.MISSED: return { text: '⚠️ 我忘记吃了', disabled: false };
+    case STATE.MISSED: return { text: '💊 现在补吃', disabled: false };
     case STATE.UPCOMING: return { text: '⏰ 还没到时间', disabled: true };
   }
 }
@@ -689,18 +689,28 @@ document.getElementById('today-list').addEventListener('click', function(e) {
 
   var medId = btn.dataset.medId;
   var timeSlot = btn.dataset.time;
+  var currentState = btn.dataset.state;
   var meds = loadMeds();
   var med = meds.find(function(m) { return m.id === medId; });
   if (!med) return;
 
   var records = loadRecords();
+
+  // If missed (late), remove the auto-created missed record and replace with taken
+  if (currentState === STATE.MISSED) {
+    records = records.filter(function(r) {
+      return !(r.medId === med.id && r.date === todayStr() && r.time === timeSlot && r.status === 'missed');
+    });
+  }
+
   records.push({
     medId: med.id,
     medName: med.name,
     date: todayStr(),
     time: timeSlot,
     status: 'taken',
-    recordedAt: new Date().toISOString()
+    recordedAt: new Date().toISOString(),
+    note: (currentState === STATE.MISSED) ? '补吃' : ''
   });
   saveRecords(records);
 
@@ -1041,9 +1051,10 @@ function renderHistory() {
       + '</div>'
       + '<div class="day-body">'
       + dayRecords.map(function(r) {
+        var label = r.status === 'taken' ? (r.note === '补吃' ? '补吃' : '已吃') : '未吃';
         return '<div class="day-record">'
           + '<span>💊 ' + escapeHtml(r.medName) + ' ' + r.time + '</span>'
-          + '<span class="tag ' + r.status + '">' + (r.status === 'taken' ? '已吃' : '未吃') + '</span>'
+          + '<span class="tag ' + r.status + '">' + label + '</span>'
           + '</div>';
       }).join('')
       + '</div></div>';
