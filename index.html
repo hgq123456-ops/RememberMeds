@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>记得要吃药</title>
+
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#165DFF">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="记得要吃药">
+
+<style>
+/* ===== CSS Reset & Variables ===== */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --primary: #165DFF;
+  --bg: #FFFFFF;
+  --text: #111111;
+  --text-secondary: #666666;
+  --text-muted: #999999;
+  --border: #E0E0E0;
+  --taken: #2DA02D;
+  --taken-bg: #F6FAF6;
+  --taken-border: #A8D5A8;
+  --now: #FF6B35;
+  --now-bg: #FFFBF8;
+  --missed: #E03030;
+  --missed-bg: #FFFBFB;
+  --upcoming-bg: #F0F0F0;
+  --font-xl: 28px;
+  --font-lg: 22px;
+  --font-md: 18px;
+  --font-sm: 15px;
+  --btn-height: 60px;
+  --btn-height-sm: 48px;
+  --radius-lg: 20px;
+  --radius-md: 14px;
+  --card-gap: 14px;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-md);
+  line-height: 1.5;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+/* ===== Page Container ===== */
+.page { display: none; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
+.page.active { display: flex; }
+.page-body { flex: 1; overflow-y: auto; padding: 0 0 24px; }
+
+/* ===== App Bar ===== */
+.app-bar {
+  background: var(--primary);
+  color: #fff;
+  padding: 16px 24px;
+  text-align: center;
+  font-size: var(--font-lg);
+  font-weight: bold;
+  letter-spacing: 2px;
+  position: relative;
+  flex-shrink: 0;
+}
+.app-bar .gear-btn {
+  position: absolute;
+  right: 14px; top: 50%;
+  transform: translateY(-50%);
+  font-size: 22px;
+  background: none; border: none;
+  color: #fff; opacity: 0.7;
+  cursor: pointer; padding: 8px;
+  line-height: 1;
+}
+
+/* ===== Section Head ===== */
+.section-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 22px 20px 8px;
+}
+.section-head .title { font-size: var(--font-lg); font-weight: bold; color: var(--text); }
+.section-head .date { margin-left: auto; font-size: var(--font-sm); color: var(--text-muted); }
+
+/* ===== Drug Card ===== */
+.drug-card {
+  margin: 0 16px var(--card-gap);
+  padding: 18px;
+  border-radius: var(--radius-lg);
+  border: 2.5px solid var(--border);
+  background: #fff;
+  transition: all 0.3s;
+}
+.drug-card .card-row { display: flex; gap: 14px; align-items: center; }
+.drug-card .drug-photo {
+  width: 80px; height: 80px;
+  border-radius: 16px;
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 42px;
+  overflow: hidden;
+}
+.drug-card .drug-photo img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+}
+.drug-card .drug-info { flex: 1; min-width: 0; }
+.drug-card .drug-name { font-size: 26px; font-weight: bold; color: var(--text); line-height: 1.3; }
+.drug-card .drug-dose { font-size: 17px; color: var(--text-secondary); margin-top: 4px; }
+.drug-card .time-tag {
+  display: inline-block; margin-top: 8px;
+  padding: 6px 18px; border-radius: 20px;
+  font-size: 17px; font-weight: bold;
+}
+.drug-card .btn-eat {
+  display: block; margin-top: 12px;
+  width: 100%; height: var(--btn-height);
+  border: none; border-radius: 18px;
+  font-size: 24px; font-weight: bold;
+  cursor: pointer; letter-spacing: 3px;
+  transition: all 0.2s;
+}
+.drug-card .btn-eat:active { transform: scale(0.97); }
+
+/* --- Drug Card States --- */
+.drug-card.state-taken { background: var(--taken-bg); border-color: var(--taken-border); opacity: 0.75; }
+.drug-card.state-taken .drug-name { color: #5A8A5A; }
+.drug-card.state-taken .time-tag { background: #E2F0E2; color: var(--taken); }
+.drug-card.state-taken .btn-eat { background: #C8E6C8; color: var(--taken); font-size: 22px; pointer-events: none; }
+
+.drug-card.state-now { border-color: var(--now); background: var(--now-bg); box-shadow: 0 0 0 5px rgba(255,107,53,0.1); }
+.drug-card.state-now .time-tag { background: var(--now); color: #fff; animation: pulse-tag 2s infinite; }
+.drug-card.state-now .btn-eat { background: var(--primary); color: #fff; }
+.drug-card.state-now .drug-photo { animation: pulse-photo 2s infinite; }
+
+.drug-card.state-upcoming .time-tag { background: var(--upcoming-bg); color: #aaa; }
+.drug-card.state-upcoming .btn-eat { background: #E8E8E8; color: #bbb; pointer-events: none; }
+
+.drug-card.state-missed { border-color: var(--missed); background: var(--missed-bg); }
+.drug-card.state-missed .time-tag { background: #FFE8E8; color: var(--missed); }
+.drug-card.state-missed .btn-eat { background: var(--missed); color: #fff; }
+
+@keyframes pulse-tag {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,107,53,0.4); }
+  50% { box-shadow: 0 0 0 14px rgba(255,107,53,0); }
+}
+@keyframes pulse-photo {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+/* ===== All-done ===== */
+.all-done {
+  margin: 32px 20px; text-align: center;
+  padding: 40px; border-radius: 24px;
+  background: var(--taken-bg); border: 2px solid var(--taken-border);
+}
+.all-done .emoji { font-size: 56px; }
+.all-done .text { font-size: 24px; color: var(--taken); font-weight: bold; margin-top: 8px; }
+.all-done .sub { font-size: 16px; color: var(--text-secondary); margin-top: 4px; }
+
+/* ===== Empty state ===== */
+.empty-state {
+  margin: 40px 20px; text-align: center; padding: 40px;
+}
+.empty-state .emoji { font-size: 48px; }
+.empty-state .text { font-size: 20px; color: var(--text-muted); margin-top: 8px; }
+
+/* ===== Family hint ===== */
+.family-hint {
+  margin: 20px 30px 12px; padding: 16px;
+  border: 2px dashed #ddd; border-radius: var(--radius-md);
+  text-align: center; font-size: var(--font-sm);
+  color: #bbb; cursor: pointer;
+}
+
+/* ===== Family Management View ===== */
+.mgmt-header {
+  background: var(--primary); color: #fff;
+  padding: 14px 20px; font-size: 20px; font-weight: bold;
+  display: flex; align-items: center; gap: 10px;
+  flex-shrink: 0;
+}
+.mgmt-header .back-btn {
+  background: none; border: none;
+  color: #fff; font-size: 24px;
+  cursor: pointer; padding: 4px;
+}
+
+.mgmt-tabs { display: flex; border-bottom: 2px solid #eee; flex-shrink: 0; }
+.mgmt-tab {
+  flex: 1; text-align: center; padding: 14px 0;
+  font-size: 17px; font-weight: bold; color: var(--text-muted);
+  cursor: pointer; border-bottom: 3px solid transparent;
+  transition: all 0.2s;
+}
+.mgmt-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+.mgmt-content { flex: 1; overflow-y: auto; padding: 12px 0; }
+.mgmt-panel { display: none; padding: 0 16px; }
+.mgmt-panel.active { display: block; }
+
+/* ===== Form ===== */
+.form-group { margin-bottom: 16px; }
+.form-label { font-size: 17px; font-weight: bold; color: #444; display: block; margin-bottom: 6px; }
+.form-label .req { color: var(--missed); }
+
+.input-big {
+  width: 100%; height: 52px;
+  font-size: 19px; padding: 0 14px;
+  border: 2px solid #ddd; border-radius: var(--radius-md);
+  background: #fff; color: var(--text);
+}
+.input-big:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 3px rgba(22,93,255,0.1); }
+
+.pill-row { display: flex; gap: 8px; }
+.pill {
+  flex: 1; height: 46px;
+  border: 2px solid #ddd; border-radius: 12px;
+  background: #fff; font-size: 16px; font-weight: bold;
+  color: #888; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+}
+.pill.selected { border-color: var(--primary); background: #E8F0FF; color: var(--primary); }
+
+.time-slot {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 8px; padding: 10px 14px;
+  background: #F8FAFF; border-radius: 12px;
+}
+.time-slot .slot-num {
+  width: 28px; height: 28px; background: var(--primary);
+  color: #fff; border-radius: 50%;
+  font-size: 14px; font-weight: bold;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.time-slot input[type="time"] {
+  flex: 1; height: 44px; font-size: 18px;
+  padding: 0 10px; border: 2px solid #ddd;
+  border-radius: 10px; background: #fff;
+}
+
+.date-row { display: flex; align-items: center; gap: 8px; }
+.date-row input[type="date"] {
+  flex: 1; height: 46px; font-size: 15px;
+  padding: 0 8px; border: 2px solid #ddd;
+  border-radius: 10px; background: #fff;
+}
+.date-row .sep { color: var(--text-muted); font-size: 16px; }
+
+.camera-btn {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  width: 100%; height: 80px; gap: 4px;
+  border: 3px dashed var(--primary); border-radius: 18px;
+  background: #F8FAFF; font-size: 18px;
+  color: var(--primary); font-weight: bold;
+  cursor: pointer; margin-bottom: 18px;
+}
+.camera-btn .cam-icon { font-size: 34px; }
+.camera-btn.has-photo { border-style: solid; background: #E8F0FF; }
+
+.btn-save {
+  width: 100%; height: 58px;
+  background: var(--primary); color: #fff;
+  border: none; border-radius: 16px;
+  font-size: 22px; font-weight: bold;
+  cursor: pointer; margin-top: 4px;
+}
+.btn-save:active { transform: scale(0.97); }
+
+/* ===== Existing meds list ===== */
+.existing-meds { margin-top: 20px; }
+.existing-meds .title { font-size: 17px; font-weight: bold; color: #444; margin-bottom: 10px; }
+.med-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px; background: #f9f9f9;
+  border-radius: 12px; margin-bottom: 8px;
+  font-size: 16px;
+}
+.med-item .info { flex: 1; }
+.med-item .del-btn {
+  background: none; border: none;
+  color: var(--missed); font-size: 20px;
+  cursor: pointer; padding: 4px;
+}
+
+/* ===== History ===== */
+.day-group {
+  margin-bottom: 8px; border-radius: 12px;
+  overflow: hidden; border: 1.5px solid #eee;
+}
+.day-header {
+  padding: 14px 16px; background: #FAFAFA;
+  font-size: 17px; font-weight: bold; color: #555;
+  display: flex; justify-content: space-between;
+  cursor: pointer;
+}
+.day-header .arrow { transition: transform 0.3s; font-size: 14px; color: #bbb; }
+.day-group.open .arrow { transform: rotate(180deg); }
+.day-body { display: none; }
+.day-group.open .day-body { display: block; }
+.day-record {
+  padding: 12px 16px; border-top: 1px solid #f0f0f0;
+  font-size: 16px; display: flex; justify-content: space-between; align-items: center;
+}
+.tag { font-size: 14px; padding: 3px 12px; border-radius: 10px; font-weight: bold; }
+.tag.taken { background: #E2F0E2; color: var(--taken); }
+.tag.missed { background: #FFE8E8; color: var(--missed); }
+
+/* ===== Install banner ===== */
+.install-banner {
+  display: none; margin: 12px 16px; padding: 14px 18px;
+  background: #E8F0FF; border-radius: var(--radius-md);
+  align-items: center; gap: 10px;
+}
+.install-banner.show { display: flex; }
+.install-banner .text { flex: 1; font-size: var(--font-sm); color: var(--primary); font-weight: bold; }
+.install-banner .btn-install {
+  background: var(--primary); color: #fff;
+  border: none; border-radius: 10px;
+  padding: 8px 16px; font-size: 15px; font-weight: bold;
+  cursor: pointer; white-space: nowrap;
+}
+.install-banner .btn-close {
+  background: none; border: none;
+  color: #999; font-size: 18px;
+  cursor: pointer; padding: 4px;
+}
+</style>
+</head>
+<body>
+
+<!-- ==================== ELDERLY VIEW ==================== -->
+<div class="page active" id="elderly-view">
+  <div class="app-bar">
+    💊 记得要吃药
+    <button class="gear-btn" id="btn-open-family" title="家人设置">⚙️</button>
+  </div>
+  <div class="page-body">
+    <div class="section-head">
+      <span class="title">📋 今日待服药</span>
+      <span class="date" id="today-date"></span>
+    </div>
+
+    <div id="today-list"></div>
+    <div class="all-done" id="all-done" style="display:none;">
+      <div class="emoji">🎉</div>
+      <div class="text">今天全部吃完啦</div>
+      <div class="sub">明天继续按时吃药哦</div>
+    </div>
+    <div class="empty-state" id="empty-today" style="display:none;">
+      <div class="emoji">😊</div>
+      <div class="text">今天没有需要吃的药</div>
+    </div>
+
+    <div class="install-banner" id="install-banner">
+      <span class="text">📲 添加到桌面，提醒不遗漏</span>
+      <button class="btn-install" id="btn-install">安装</button>
+      <button class="btn-close" id="btn-close-banner">✕</button>
+    </div>
+
+    <div class="family-hint" id="btn-open-family-bottom">
+      ⚙️ 家人设置 · 添加药品 · 查看记录
+    </div>
+  </div>
+</div>
+
+<!-- ==================== FAMILY VIEW ==================== -->
+<div class="page" id="family-view">
+  <div class="mgmt-header">
+    <button class="back-btn" id="btn-back-elderly">←</button>
+    <span>家人设置</span>
+  </div>
+  <div class="mgmt-tabs">
+    <div class="mgmt-tab active" data-tab="add">➕ 添加药品</div>
+    <div class="mgmt-tab" data-tab="history">📅 历史记录</div>
+  </div>
+  <div class="mgmt-content">
+    <!-- Add panel -->
+    <div class="mgmt-panel active" id="add-panel">
+      <button class="camera-btn" id="camera-btn">
+        <span class="cam-icon">📸</span>
+        <span>点击拍药盒</span>
+      </button>
+      <input type="file" id="photo-input" accept="image/*" capture="environment" style="display:none;">
+
+      <div class="form-group">
+        <label class="form-label"><span class="req">*</span> 药品名称</label>
+        <input class="input-big" type="text" id="input-name" placeholder="例如：降压药" maxlength="20">
+      </div>
+
+      <div style="display:flex;gap:8px;" class="form-group">
+        <div style="flex:1;">
+          <label class="form-label"><span class="req">*</span> 每次用量</label>
+          <input class="input-big" type="number" id="input-dosage" value="1" min="1" max="99" style="text-align:center;">
+        </div>
+        <div style="flex:1;">
+          <label class="form-label">单位</label>
+          <div class="pill-row" id="unit-pills">
+            <div class="pill selected" data-value="片">片</div>
+            <div class="pill" data-value="粒">粒</div>
+            <div class="pill" data-value="包">包</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label"><span class="req">*</span> 每天几次</label>
+        <div class="pill-row" id="freq-pills">
+          <div class="pill" data-value="1">1次</div>
+          <div class="pill selected" data-value="2">2次</div>
+          <div class="pill" data-value="3">3次</div>
+        </div>
+      </div>
+
+      <div class="form-group" id="time-slots-container"></div>
+
+      <div class="form-group">
+        <label class="form-label">服用周期（可选）</label>
+        <div class="date-row">
+          <input type="date" id="input-date-start">
+          <span class="sep">至</span>
+          <input type="date" id="input-date-end">
+        </div>
+        <div style="font-size:13px;color:var(--text-muted);margin-top:4px;">💡 不选默认从今天开始，长期服用</div>
+      </div>
+
+      <button class="btn-save" id="btn-save-med">✅ 保存提醒</button>
+
+      <div class="existing-meds" id="existing-meds">
+        <div class="title">📋 已设置的药品</div>
+        <div id="existing-meds-list"></div>
+      </div>
+    </div>
+
+    <!-- History panel -->
+    <div class="mgmt-panel" id="history-panel">
+      <div id="history-list"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== PLACEHOLDER: Data layer (Task 2) =====
+// ===== PLACEHOLDER: Rendering (Task 3) =====
+// ===== PLACEHOLDER: Interactions (Task 4) =====
+// ===== PLACEHOLDER: Voice (Task 5) =====
+// ===== PLACEHOLDER: Timer (Task 6) =====
+// ===== PLACEHOLDER: Family view (Task 7) =====
+// ===== PLACEHOLDER: History (Task 8) =====
+// ===== PLACEHOLDER: PWA init (Task 11) =====
+</script>
+
+</body>
+</html>
