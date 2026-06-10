@@ -367,9 +367,6 @@ body {
       <button class="btn-close" id="btn-close-banner">✕</button>
     </div>
 
-    <div style="text-align:center;margin:8px 0;">
-      <button id="btn-test-voice" style="background:none;border:1px solid #ddd;border-radius:10px;padding:8px 16px;font-size:14px;color:#bbb;cursor:pointer;">🔊 测试语音</button>
-    </div>
     <div class="family-hint" id="btn-open-family-bottom">
       ⚙️ 家人设置 · 添加药品 · 查看记录
     </div>
@@ -1168,24 +1165,6 @@ document.getElementById('btn-close-banner').addEventListener('click', function()
 if (window.matchMedia('(display-mode: standalone)').matches) {
   document.getElementById('install-banner').classList.remove('show');
 }
-
-// Test voice button
-document.getElementById('btn-test-voice').addEventListener('click', function() {
-  playBeepAlarm(); // Always play beep
-
-  if (!window.speechSynthesis) {
-    alert('🔊 已播放蜂鸣提示音\n\n您的浏览器不支持语音播报，但蜂鸣闹铃可以正常工作。');
-    return;
-  }
-  var u = new SpeechSynthesisUtterance('您好，这是记得要吃药语音提醒测试');
-  u.lang = 'zh-CN';
-  u.rate = 0.75;
-  u.volume = 1.0;
-  speechSynthesis.speak(u);
-  setTimeout(function() {
-    alert('🔊 已播放：蜂鸣声 + 语音播报\n\n如果只听到蜂鸣没听到语音，说明您的浏览器不支持中文语音，但提醒功能仍可正常使用。\n\n请确保手机音量已开启。');
-  }, 1500);
-});
 
 // ===================================================================
 // INIT
